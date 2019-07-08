@@ -18,6 +18,8 @@ dependencies:
 	go get -u gitlab.com/NebulousLabs/Sia/node/api/client
 	go get -u github.com/fsnotify/fsnotify
 	go get -u gitlab.com/NebulousLabs/Sia/modules
-	go get -u gitlab.com/NebulousLabs/Sia/build 
-	
+	go get -u gitlab.com/NebulousLabs/Sia/build
+	go get -u github.com/takama/daemon
+	go get -u gopkg.in/yaml.v2
+
 .PHONY:	release	$(PLATFORMS)

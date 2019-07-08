@@ -1,0 +1,28 @@
+version: "1.0.0"
+
+Sync:
+  - name: test
+    path: ./test
+    archive: False
+    prefix: test
+    prefix: test
+    dataPieces: 10
+    parityPieces: 30
+    includeExtensions: ["png", "nef"]
+    excludeExtensions:
+      - "jpg"
+      - "ppt"
+
+  - name: test2
+    path: ./test
+    archive: True
+    prefix: test
+    prefix: test
+    dataPieces: 10
+    parityPieces: 30
+    includeExtensions:
+      - png
+      - nef
+    excludeExtensions:
+      - jpg
+      - ppt
