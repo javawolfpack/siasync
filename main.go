@@ -6,7 +6,9 @@ import (
   "io/ioutil"
   "log"
   "os"
-  // "os/signal"
+  "os/signal"
+  "syscall"
+  "time"
   "strings"
 
   "gitlab.com/NebulousLabs/Sia/build"
@@ -30,6 +32,9 @@ var (
   parityPieces      uint64
 )
 
+//    dependencies that are NOT required by the service, but might be used
+var dependencies = []string{"dummy.service"}
+
 const (
 
     // name of the service
@@ -39,26 +44,22 @@ const (
 )
 
 
-type Yaml struct {
+type YamlSync struct {
     Version    string
-    Sync []map[string][]string `yaml:"Sync"`
-    // Sync []Sync `yaml:"Sync"`
+    Sync []Sync `yaml:"sync"`
 }
 
 type Sync struct {
     Name string `yaml:"name"`
     Path string `yaml:"path"`
     Archive bool `yaml:"archive"`
-    prefix string `yaml:"subfolder"`
-    dataPieces uint64 `yaml:"dataPieces"`
-    parityPieces uint64 `yaml:"parityPieces"`
-    includeExtensions string `yaml: "includeExtensions"`
-    excludeExtensions string `yaml: "excludeExtensions"`
+    Prefix string `yaml:"siaDir"`
+    DataPieces int `yaml:"dataPieces"`
+    ParityPieces int `yaml:"parityPieces"`
+    IncludeExtensions []string `yaml:"includeExtensions"`
+    ExcludeExtensions []string `yaml:"excludeExtensions"`
 }
 
-// type Extension struct {
-//     extension       string
-// }
 
 
 // Service has embedded daemon
@@ -133,6 +134,21 @@ func testConnection(sc *sia.Client) {
 
 }
 
+func GoogleIt(){
+  for {
+    f, err := os.OpenFile("test.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        log.Fatal(err)
+    }
+    if _, err := f.Write([]byte("Hi\n")); err != nil {
+        log.Fatal(err)
+    }
+    if err := f.Close(); err != nil {
+        log.Fatal(err)
+    }
+    time.Sleep(time.Second)
+  }
+}
 // Manage by daemon commands or run the daemon
 func (service *Service) Manage() (string, error) {
 
@@ -157,6 +173,34 @@ func (service *Service) Manage() (string, error) {
           return usage, nil
       }
   }
+  // Set up channel on which to send signal notifications.
+  // We must use a buffered channel or risk missing the signal
+  // if we're not ready to receive when the signal is sent.
+  interrupt := make(chan os.Signal, 1)
+  signal.Notify(interrupt, os.Interrupt, os.Kill, syscall.SIGTERM)
+  f, err := os.OpenFile("testlogfile", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+  if err != nil {
+      log.Fatalf("error opening file: %v", err)
+  }
+  // defer f.Close()
+
+  log.SetOutput(f)
+
+  go GoogleIt()
+  for {
+    f, err := os.OpenFile("test.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        log.Fatal(err)
+    }
+    if _, err := f.Write([]byte("appended some data\n")); err != nil {
+        log.Fatal(err)
+    }
+    if err := f.Close(); err != nil {
+        log.Fatal(err)
+    }
+    time.Sleep(time.Second)
+  }
+
   // never happen, but need to complete code
   return usage, nil
 }
@@ -210,12 +254,19 @@ func main() {
   // signal.Notify(done, os.Interrupt)
   // <-done
   // fmt.Println("caught quit signal, exiting...")
-  y := Yaml{}
+  f, err := os.OpenFile("testlogfile", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+  if err != nil {
+      log.Fatalf("error opening file: %v", err)
+  }
+  defer f.Close()
+
+  log.SetOutput(f)
+  y := YamlSync{}
   yamlFile, err := ioutil.ReadFile("test.yml")
   yaml.Unmarshal(yamlFile, &y)
-  fmt.Printf("%+v\n", y)
+  fmt.Printf("%+v\n", y.Sync)
 
-  srv, err := daemon.New(name, description)
+  srv, err := daemon.New(name, description, dependencies...)
   if err != nil {
       errlog.Println("Error: ", err)
       os.Exit(1)

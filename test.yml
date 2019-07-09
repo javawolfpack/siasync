@@ -1,14 +1,15 @@
 version: "1.0.0"
 
-Sync:
+sync:
   - name: test
     path: ./test
     archive: False
-    prefix: test
-    prefix: test
+    siaDir: test
     dataPieces: 10
     parityPieces: 30
-    includeExtensions: ["png", "nef"]
+    includeExtensions:
+      - "png"
+      - "nef"
     excludeExtensions:
       - "jpg"
       - "ppt"
@@ -16,8 +17,7 @@ Sync:
   - name: test2
     path: ./test
     archive: True
-    prefix: test
-    prefix: test
+    siaDir: test
     dataPieces: 10
     parityPieces: 30
     includeExtensions:
