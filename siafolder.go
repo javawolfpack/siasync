@@ -29,6 +29,8 @@ type SiaFolder struct {
   closeChan chan struct{}
 }
 
+
+
 // contains checks if a string exists in a []strings.
 func contains(a []string, x string) bool {
   for _, n := range a {
@@ -41,9 +43,9 @@ func contains(a []string, x string) bool {
 
 // checkFile checks if a file's extension is included or excluded
 // included takes precedence over excluded.
-func checkFile(path string) (bool, error) {
-  if include != "" {
-    if contains(includeExtensions, strings.TrimLeft(filepath.Ext(path), ".")) {
+func checkFile(path string, sync_obj Sync) (bool, error) {
+  if len(sync_obj.IncludeExtensions)>0 {
+    if contains(sync_obj.IncludeExtensions, strings.TrimLeft(filepath.Ext(path), ".")) {
       if debug {
         fmt.Println("Found extension in include flag")
       }
@@ -56,8 +58,8 @@ func checkFile(path string) (bool, error) {
     }
   }
 
-  if exclude != "" {
-    if contains(excludeExtensions, strings.TrimLeft(filepath.Ext(path), ".")) {
+  if len(sync_obj.ExcludeExtensions)>0 {
+    if contains(sync_obj.ExcludeExtensions, strings.TrimLeft(filepath.Ext(path), ".")) {
       return false, nil
     } else {
       return true, nil
@@ -68,10 +70,10 @@ func checkFile(path string) (bool, error) {
 
 // NewSiafolder creates a new SiaFolder using the provided path and api
 // address.
-func NewSiafolder(path string, client *sia.Client) (*SiaFolder, error) {
+func NewSiafolder(sync_obj Sync, client *sia.Client) (*SiaFolder, error) {
   sf := &SiaFolder{}
 
-  abspath, err := filepath.Abs(path)
+  abspath, err := filepath.Abs(sync_obj.Path)
   if err != nil {
     return nil, err
   }
@@ -80,8 +82,8 @@ func NewSiafolder(path string, client *sia.Client) (*SiaFolder, error) {
   sf.files = make(map[string]string)
   sf.closeChan = make(chan struct{})
   sf.client = client
-  sf.archive = archive
-  sf.prefix = prefix
+  sf.archive = sync_obj.Archive
+  sf.prefix = sync_obj.Prefix
 
   // watch for file changes
   watcher, err := fsnotify.NewWatcher()
@@ -101,7 +103,7 @@ func NewSiafolder(path string, client *sia.Client) (*SiaFolder, error) {
     if err != nil {
       return err
     }
-    if walkpath == path {
+    if walkpath == sync_obj.Path {
       return nil
     }
 
@@ -121,12 +123,12 @@ func NewSiafolder(path string, client *sia.Client) (*SiaFolder, error) {
     return nil, err
   }
 
-  err = sf.uploadNonExisting()
+  err = sf.uploadNonExisting(sync_obj)
   if err != nil {
     return nil, err
   }
 
-  go sf.eventWatcher()
+  go sf.eventWatcher(sync_obj)
 
   return sf, nil
 }
@@ -157,7 +159,7 @@ func checksumFile(path string) (string, error) {
 
 // eventWatcher continuously listens on the SiaFolder's watcher channels and
 // performs the necessary upload/delete operations.
-func (sf *SiaFolder) eventWatcher() {
+func (sf *SiaFolder) eventWatcher(sync_obj Sync) {
   for {
     select {
     case <-sf.closeChan:
@@ -169,7 +171,7 @@ func (sf *SiaFolder) eventWatcher() {
         sf.watcher.Add(filename)
         continue
       }
-      goodForWrite, err := checkFile(filename)
+      goodForWrite, err := checkFile(filename, sync_obj)
       if err != nil {
         log.Println(err)
       }
@@ -177,7 +179,7 @@ func (sf *SiaFolder) eventWatcher() {
       // WRITE event, checksum the file and re-upload it if it has changed
       if event.Op&fsnotify.Write == fsnotify.Write {
         if goodForWrite {
-          err = sf.handleFileWrite(filename)
+          err = sf.handleFileWrite(filename, sync_obj)
           if err != nil {
             log.Println(err)
           }
@@ -189,7 +191,7 @@ func (sf *SiaFolder) eventWatcher() {
         if event.Op&fsnotify.Remove == fsnotify.Remove {
           if goodForWrite {
             log.Println("file removal detected, removing", filename)
-            err = sf.handleRemove(filename)
+            err = sf.handleRemove(filename, sync_obj)
             if err != nil {
               log.Println(err)
             }
@@ -201,7 +203,7 @@ func (sf *SiaFolder) eventWatcher() {
       if event.Op&fsnotify.Create == fsnotify.Create {
         if goodForWrite {
           log.Println("file creation detected, uploading", filename)
-          uploadRetry(sf, filename)
+          uploadRetry(sf, filename, sync_obj)
           // err = sf.handleCreate(filename)
           //if err != nil {
           //  log.Println(err)
@@ -217,11 +219,11 @@ func (sf *SiaFolder) eventWatcher() {
   }
 }
 
-func uploadRetry(sf *SiaFolder, filename string) {
-  err := sf.handleCreate(filename)
+func uploadRetry(sf *SiaFolder, filename string, sync_obj Sync) {
+  err := sf.handleCreate(filename, sync_obj)
   if err != nil {
     time.Sleep(10 * time.Second)
-    err2 := sf.handleCreate(filename)
+    err2 := sf.handleCreate(filename, sync_obj)
     if err2 != nil {
       log.Println(err2)
     }
@@ -229,7 +231,7 @@ func uploadRetry(sf *SiaFolder, filename string) {
 }
 
 // handleFileWrite handles a WRITE fsevent.
-func (sf *SiaFolder) handleFileWrite(file string) error {
+func (sf *SiaFolder) handleFileWrite(file string, sync_obj Sync) error {
   checksum, err := checksumFile(file)
   if err != nil {
     return err
@@ -240,12 +242,12 @@ func (sf *SiaFolder) handleFileWrite(file string) error {
     log.Printf("change in %v detected, reuploading..\n", file)
     sf.files[file] = checksum
     if !sf.archive {
-      err = sf.handleRemove(file)
+      err = sf.handleRemove(file, sync_obj)
       if err != nil {
         return err
       }
     }
-    err = sf.handleCreate(file)
+    err = sf.handleCreate(file, sync_obj)
     if err != nil {
       return err
     }
@@ -262,7 +264,7 @@ func (sf *SiaFolder) Close() error {
 
 // handleCreate handles a file creation event. `file` is a relative path to the
 // file on disk.
-func (sf *SiaFolder) handleCreate(file string) error {
+func (sf *SiaFolder) handleCreate(file string, sync_obj Sync) error {
   abspath, err := filepath.Abs(file)
   if err != nil {
     return fmt.Errorf("error getting absolute path to upload: %v\n:", err)
@@ -272,7 +274,7 @@ func (sf *SiaFolder) handleCreate(file string) error {
     return fmt.Errorf("error getting relative path to upload: %v\n", err)
   }
 
-  err = sf.client.RenterUploadPost(abspath, newSiaPath(filepath.Join(prefix, relpath)), dataPieces, parityPieces)
+  err = sf.client.RenterUploadPost(abspath, newSiaPath(filepath.Join(sync_obj.Prefix, relpath)), sync_obj.DataPieces, sync_obj.ParityPieces)
   if err != nil {
     return fmt.Errorf("error uploading %v: %v\n", file, err)
   }
@@ -285,13 +287,13 @@ func (sf *SiaFolder) handleCreate(file string) error {
 }
 
 // handleRemove handles a file removal event.
-func (sf *SiaFolder) handleRemove(file string) error {
+func (sf *SiaFolder) handleRemove(file string, sync_obj Sync) error {
   relpath, err := filepath.Rel(sf.path, file)
   if err != nil {
     return fmt.Errorf("error getting relative path to remove: %v\n", err)
   }
 
-  err = sf.client.RenterDeletePost(newSiaPath(filepath.Join(prefix, relpath)))
+  err = sf.client.RenterDeletePost(newSiaPath(filepath.Join(sync_obj.Prefix, relpath)))
   if err != nil {
     return fmt.Errorf("error removing %v: %v\n", file, err)
   }
@@ -301,14 +303,14 @@ func (sf *SiaFolder) handleRemove(file string) error {
 
 // uploadNonExisting runs once and performs any uploads required to ensure
 // every file in files is uploaded to the Sia node.
-func (sf *SiaFolder) uploadNonExisting() error {
+func (sf *SiaFolder) uploadNonExisting(sync_obj Sync) error {
   renterFiles, err := sf.client.RenterFilesGet(true)
   if err != nil {
     return err
   }
 
   for file := range sf.files {
-    goodForWrite, err := checkFile(filepath.Clean(file))
+    goodForWrite, err := checkFile(filepath.Clean(file), sync_obj)
     if err != nil {
       log.Println(err)
     }
@@ -324,7 +326,7 @@ func (sf *SiaFolder) uploadNonExisting() error {
         }
       }
       if !exists {
-        sf.handleCreate(file)
+        sf.handleCreate(file, sync_obj)
       }
     }
   }

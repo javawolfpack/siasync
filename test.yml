@@ -7,9 +7,9 @@ sync:
     siaDir: test
     dataPieces: 10
     parityPieces: 30
-    includeExtensions:
-      - "png"
-      - "nef"
+#     includeExtensions:
+#       - "png"
+#       - "nef"
     excludeExtensions:
       - "jpg"
       - "ppt"
@@ -17,12 +17,12 @@ sync:
   - name: test2
     path: ./test
     archive: True
-    siaDir: test
+    siaDir: test2
     dataPieces: 10
     parityPieces: 30
-    includeExtensions:
+#     includeExtensions:
+#       - jpg
+#       - ppt
+    excludeExtensions:
       - png
       - nef
-    excludeExtensions:
-      - jpg
-      - ppt

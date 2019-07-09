@@ -6,7 +6,7 @@ import (
   "io/ioutil"
   "log"
   "os"
-  // "os/signal"
+  "os/signal"
   // "syscall"
   // "time"
   "strings"
@@ -54,8 +54,8 @@ type Sync struct {
     Path string `yaml:"path"`
     Archive bool `yaml:"archive"`
     Prefix string `yaml:"siaDir"`
-    DataPieces int `yaml:"dataPieces"`
-    ParityPieces int `yaml:"parityPieces"`
+    DataPieces uint64 `yaml:"dataPieces"`
+    ParityPieces uint64 `yaml:"parityPieces"`
     IncludeExtensions []string `yaml:"includeExtensions"`
     ExcludeExtensions []string `yaml:"excludeExtensions"`
 }
@@ -183,14 +183,29 @@ func main() {
   // signal.Notify(done, os.Interrupt)
   // <-done
   // fmt.Println("caught quit signal, exiting...")
-
+  
+  //Parse the yaml file into struct forms
   y := YamlSync{}
   yamlFile, err := ioutil.ReadFile("test.yml")
   if err != nil {
     log.Fatalf("error: %v", err)
   }
   yaml.Unmarshal(yamlFile, &y)
-  fmt.Printf("%+v\n", y.Sync)
+//   fmt.Printf("%+v\n", y.Sync)
+  for _, sync_obj := range y.Sync {
+//       fmt.Println(i, sync_obj)
+      sf, err := NewSiafolder(sync_obj, sc)
+      if err != nil {
+        log.Fatal(err)
+      }
+      defer sf.Close()
+      
+      log.Println("watching for changes to ", sync_obj.Path)
+  }
+  done := make(chan os.Signal)
+  signal.Notify(done, os.Interrupt)
+  <-done
+  fmt.Println("caught quit signal, exiting...")
 
 
 }
